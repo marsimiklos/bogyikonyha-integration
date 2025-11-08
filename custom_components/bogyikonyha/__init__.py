@@ -14,13 +14,22 @@ SCAN_INTERVAL = timedelta(hours=1) # Frissítés óránként
 # Belső hívás, HTTP és a 'supervisor' hoszt elegendő.
 ADDON_API_URL = "http://supervisor/addons/bogyikonya/api/pantry"
 
+
+async def async_setup(hass: HomeAssistant, config: dict):
+    """Az integráció betöltése a konfigurációs folyamat számára."""
+    # Mivel config_flow-t használunk, ez a funkció csak annyit tesz, 
+    # hogy jelzi a HA-nak, hogy az integráció sikeresen betöltött.
+    hass.data.setdefault(DOMAIN, {})
+    return True
+
+
 async def async_setup_entry(hass: HomeAssistant, entry):
     """Integráció beállítása a konfigurációs bejegyzés alapján."""
     
     # 1. Koordinátor beállítása a Home Assistant Core-ban
     coordinator = BogyiKonyhaDataUpdateCoordinator(hass)
     
-    # 2. Első adatfrissítés elvégzése
+    # 2. Első adatfrissítés elvégzése (blokkolás nélkül)
     await coordinator.async_config_entry_first_refresh()
 
     # 3. Adat tárolása a hass.data szótárban
@@ -44,6 +53,7 @@ class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=SCAN_INTERVAL,
         )
+        # HASSIO környezetben a Home Assistant aiohttp kliensét használjuk
         self.session = async_get_clientsession(hass)
 
     async def _async_update_data(self):
