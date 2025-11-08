@@ -5,7 +5,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.config_entries import ConfigEntry
 
-# Szükséges importok a Supervisor API híváshoz
+# A hassio import szükséges az elérhetőség ellenőrzéséhez és a get_api() híváshoz
 from homeassistant.components import hassio 
 from homeassistant.exceptions import HomeAssistantError
 
@@ -18,8 +18,6 @@ SCAN_INTERVAL = timedelta(hours=1) # Frissítés óránként
 
 async def async_setup(hass: HomeAssistant, config: dict):
     """Az integráció betöltése a konfigurációs folyamat számára."""
-    # A config_flow miatt ez a funkció csak annyit tesz,
-    # hogy jelzi a HA-nak, hogy az integráció sikeresen betöltött.
     hass.data.setdefault(DOMAIN, {})
     return True
 
@@ -33,7 +31,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     # 2. Első adatfrissítés (blokkolás nélkül)
     await coordinator.async_config_entry_first_refresh()
 
-    # 3. Adat tárolása a hass.data szótárban
+    # 3. Adat tárolása
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
     # 4. Szenzor entitások beállítása (forward a sensor.py-ra)
@@ -53,7 +51,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 # --- Data Update Koordinátor ---
 
 class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
-    """Az adatok frissítéséért felelős koordinátor. A Supervisor API-t használja."""
+    """Az adatok frissítéséért felelős koordinátor. A Supervisor API Klienst használja."""
 
     def __init__(self, hass: HomeAssistant):
         """Inicializálás."""
@@ -74,22 +72,24 @@ class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
             raise UpdateFailed("A Supervisor szolgáltatás nem elérhető.")
 
         try:
-            # 2. Lekérjük a Supervisor API klienst, ami kezeli a hitelesítést
+            # 2. Lekérjük a Supervisor API klienst, ami kezeli a tokent
+            # A get_api() metódus a helyes útvonal a kliens eléréséhez.
             api = self.hass.components.hassio.get_api()
             
-            # 3. Meghívjuk az Add-on API végpontot a Supervisor kliensen keresztül
+            # 3. Meghívjuk az Add-on API végpontot a kliensen keresztül
             # Az Add-on API elérésének útvonala a Supervisor számára: /addons/{slug}/api/{végpont}
+            # Az api.get() metódus automatikusan POST/GET kéréseket indít a Supervisor felé.
             response = await api.get(f"addons/{self.addon_slug}/api/pantry")
 
-            # A response már a JSON tartalom, feltéve, hogy a hívás sikeres.
+            # Ha a hívás sikeres, a response már a JSON tartalom.
             return response
 
         except hassio.HassioAPIError as err:
-            # Add-on specifikus hiba (pl. 404, 500 az Add-on API-ján)
+            # Add-on specifikus hiba
             _LOGGER.error("Add-on API hiba a Supervisoron keresztül: %s", err)
             raise UpdateFailed(f"Add-on API hiba (Supervisor): {err}")
         except HomeAssistantError as err:
-            # Home Assistant Core hiba (pl. rossz slug, timeout)
+            # Home Assistant Core hiba
             _LOGGER.error("Hiba az Add-on API elérésében: %s", err)
             raise UpdateFailed(f"Hiba az Add-on API elérésében: {err}")
         except Exception as err:
