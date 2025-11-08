@@ -5,7 +5,6 @@
   "config_flow": true,
   "documentation": "https://github.com/bogyikonya/bogyikonyha-integration",
   "dependencies": [],
-  "integration_type": "helper",
   "requirements": [],
   "version": "1.0.0"
 }
