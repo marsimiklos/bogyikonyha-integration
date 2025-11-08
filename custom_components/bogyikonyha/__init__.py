@@ -14,9 +14,11 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN = "bogyikonya"
 SCAN_INTERVAL = timedelta(hours=1) # Frissítés óránként
 
+# --- Core Setup FÁZISOK ---
+
 async def async_setup(hass: HomeAssistant, config: dict):
     """Az integráció betöltése a konfigurációs folyamat számára."""
-    # Mivel config_flow-t használunk, ez a funkció csak annyit tesz,  
+    # A config_flow miatt ez a funkció csak annyit tesz,
     # hogy jelzi a HA-nak, hogy az integráció sikeresen betöltött.
     hass.data.setdefault(DOMAIN, {})
     return True
@@ -25,23 +27,20 @@ async def async_setup(hass: HomeAssistant, config: dict):
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Integráció beállítása a konfigurációs bejegyzés alapján."""
     
-    # 1. Koordinátor beállítása a Home Assistant Core-ban
+    # 1. Koordinátor beállítása
     coordinator = BogyiKonyhaDataUpdateCoordinator(hass)
     
-    # 2. Első adatfrissítés elvégzése (blokkolás nélkül)
+    # 2. Első adatfrissítés (blokkolás nélkül)
     await coordinator.async_config_entry_first_refresh()
 
     # 3. Adat tárolása a hass.data szótárban
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
 
-    # 4. Szenzor entitások beállítása (sensor.py-ra utal)
-    # A hass.async_create_task elavult lehet a modern HA-ban, 
-    # helyette a közvetlen hívás ajánlott:
+    # 4. Szenzor entitások beállítása (forward a sensor.py-ra)
     await hass.config_entries.async_forward_entry_setup(entry, "sensor")
     
     return True
 
-# Opcionális: a config entry eltávolításának kezelése
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Integráció eltávolítása a config entry törlésekor."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
@@ -50,6 +49,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     return unload_ok
 
+
+# --- Data Update Koordinátor ---
 
 class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
     """Az adatok frissítéséért felelős koordinátor. A Supervisor API-t használja."""
@@ -62,28 +63,26 @@ class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=SCAN_INTERVAL,
         )
-        # Az Add-on slug (ID) tárolása
         self.addon_slug = "bogyikonya" 
 
     async def _async_update_data(self):
         """Adatok lekérése a Bogyi Konyha Add-on API-ról a Supervisor API-n keresztül."""
         
-        # A VÁLTOZÁS ITT VAN: HITETESÍTETT HÍVÁS A SUPERVISOR-ON KERESZTÜL
-        try:
-            # A hassio.async_send_command automatikusan kezeli a tokent és a hitelesítést.
-            
-            # API ÚTVONAL: /addons/{slug}/api/pantry
-            # MÓDSZER: GET
-            data = await hassio.async_send_command(
-                self.hass,
-                "addons/{slug}/api/pantry".format(slug=self.addon_slug),
-                "get", 
-                None # A GET kéréshez nincs szükség body-ra
-            )
+        # 1. Supervisor elérhetőségének ellenőrzése
+        if not hassio.is_loaded(self.hass):
+            _LOGGER.error("A Supervisor szolgáltatás nem elérhető. Az Add-on API hívás sikertelen.")
+            raise UpdateFailed("A Supervisor szolgáltatás nem elérhető.")
 
-            # A hassio.async_send_command a válasz tartalmát (JSON-t) adja vissza, 
-            # vagy HomeAssistantError-t/HassioAPIError-t dob hiba esetén.
-            return data
+        try:
+            # 2. Lekérjük a Supervisor API klienst, ami kezeli a hitelesítést
+            api = self.hass.components.hassio.get_api()
+            
+            # 3. Meghívjuk az Add-on API végpontot a Supervisor kliensen keresztül
+            # Az Add-on API elérésének útvonala a Supervisor számára: /addons/{slug}/api/{végpont}
+            response = await api.get(f"addons/{self.addon_slug}/api/pantry")
+
+            # A response már a JSON tartalom, feltéve, hogy a hívás sikeres.
+            return response
 
         except hassio.HassioAPIError as err:
             # Add-on specifikus hiba (pl. 404, 500 az Add-on API-ján)
