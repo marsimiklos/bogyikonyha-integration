@@ -4,7 +4,7 @@
   "codeowners": ["@miklosmarsi"],
   "config_flow": true,
   "documentation": "https://github.com/bogyikonya/bogyikonyha-integration",
-  "dependencies": [],
+  "dependencies": ["hassio"],
   "requirements": [],
   "version": "1.0.3"
 }
