@@ -12,11 +12,9 @@ DOMAIN = "bogyikonya"
 SCAN_INTERVAL = timedelta(hours=1)
 
 # A Supervisor API proxy útvonala az Add-on API-jához
-# Ez az útvonal a HA belső hálózaton keresztül érhető el hitelesítés nélkül,
-# mivel a Core hívja a Supervisort.
 ADDON_API_URL = "http://supervisor/addons/bogyikonya/api/pantry"
 
-# --- Core Setup FÁZISOK (Helyes) ---
+# --- Core Setup FÁZISOK ---
 
 async def async_setup(hass: HomeAssistant, config: dict):
     """Az integráció betöltése."""
@@ -27,7 +25,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Integráció beállítása a konfigurációs bejegyzés alapján."""
     coordinator = BogyiKonyhaDataUpdateCoordinator(hass)
     
-    # Első adatfrissítés végrehajtása
     await coordinator.async_config_entry_first_refresh()
     
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
@@ -42,7 +39,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     return unload_ok
 
 
-# --- Data Update Koordinátor (Javított API hívással) ---
+# --- Data Update Koordinátor ---
 
 class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
     """Az adatok frissítéséért felelős koordinátor."""
@@ -55,16 +52,20 @@ class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
             name=DOMAIN,
             update_interval=SCAN_INTERVAL,
         )
-        # HA aiohttp kliens használata
         self.session = async_get_clientsession(hass)
 
     async def _async_update_data(self):
-        """Adatok lekérése a Bogyi Konyha Add-on API-ról."""
+        """Adatok lekérése a Bogyi Konyha Add-on API-ról. (401 hiba kezelésére javasolt fejléc)"""
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            # Ez a fejléc segíthet a Supervisor proxy hitelesítésében
+            "X-Addon-Source": "Home Assistant Core" 
+        }
         
         try:
-            # Végrehajtjuk a GET kérést hitelesítő fejlécek nélkül,
-            # bízva a Supervisor belső proxy működésében.
-            async with self.session.get(ADDON_API_URL, timeout=10) as response:
+            async with self.session.get(ADDON_API_URL, headers=headers, timeout=10) as response:
                 
                 if response.status != 200:
                     error_text = await response.text()
