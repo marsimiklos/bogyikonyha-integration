@@ -11,8 +11,8 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN = "bogyikonya"
 SCAN_INTERVAL = timedelta(hours=1)
 
-# A Supervisor API proxy útvonala az Add-on API-jához
-ADDON_API_URL = "http://supervisor/addons/bogyikonya/api/pantry"
+# A Core integrációhoz NINCS szükség az ADDON_API_URL fixen definiálására,
+# mert a címet a konfigurációból fogjuk kapni (ld. 3. pont: Config Flow)!
 
 # --- Core Setup FÁZISOK ---
 
@@ -23,28 +23,29 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Integráció beállítása a konfigurációs bejegyzés alapján."""
-    coordinator = BogyiKonyhaDataUpdateCoordinator(hass)
+    
+    # Itt használjuk a konfigurációban megadott API címet:
+    addon_api_url = entry.data.get("api_url") 
+    if not addon_api_url:
+        _LOGGER.error("Hiányzó API URL a konfigurációban.")
+        return False
+
+    coordinator = BogyiKonyhaDataUpdateCoordinator(hass, addon_api_url)
     
     await coordinator.async_config_entry_first_refresh()
     
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setup(entry, "sensor")
     return True
+# (async_unload_entry változatlan marad)
+# ...
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
-    """Integráció eltávolítása a config entry törlésekor."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
-    return unload_ok
-
-
-# --- Data Update Koordinátor ---
+# --- Data Update Koordinátor (Csak a lényeges változások) ---
 
 class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
     """Az adatok frissítéséért felelős koordinátor."""
 
-    def __init__(self, hass: HomeAssistant):
+    def __init__(self, hass: HomeAssistant, api_url: str):
         """Inicializálás."""
         super().__init__(
             hass,
@@ -53,27 +54,21 @@ class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
             update_interval=SCAN_INTERVAL,
         )
         self.session = async_get_clientsession(hass)
-
+        self.api_url = api_url # Az URL tárolása
+        
     async def _async_update_data(self):
-        """Adatok lekérése a Bogyi Konyha Add-on API-ról. (401 hiba kezelésére javasolt fejléc)"""
+        """Adatok lekérése a Bogyi Konyha Add-on API-ról."""
         
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            # Ez a fejléc segíthet a Supervisor proxy hitelesítésében
-            "X-Addon-Source": "Home Assistant Core" 
-        }
-        
+        # Nincs szükség speciális fejlécekre, mert direkt hívás történik
         try:
-            async with self.session.get(ADDON_API_URL, headers=headers, timeout=10) as response:
+            async with self.session.get(self.api_url, timeout=10) as response:
                 
                 if response.status != 200:
                     error_text = await response.text()
-                    _LOGGER.error("API hiba (%s): %s - %s", response.status, ADDON_API_URL, error_text)
+                    _LOGGER.error("API hiba (%s): %s - %s", response.status, self.api_url, error_text)
                     raise UpdateFailed(f"Add-on API hiba: {response.status}")
 
                 data = await response.json()
-                _LOGGER.debug("Sikeresen lekérdezett adatok: %s", data)
                 return data
                 
         except Exception as err:
