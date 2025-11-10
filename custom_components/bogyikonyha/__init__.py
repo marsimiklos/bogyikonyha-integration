@@ -11,9 +11,6 @@ _LOGGER = logging.getLogger(__name__)
 DOMAIN = "bogyikonya"
 SCAN_INTERVAL = timedelta(hours=1)
 
-# A Core integrációhoz NINCS szükség az ADDON_API_URL fixen definiálására,
-# mert a címet a konfigurációból fogjuk kapni (ld. 3. pont: Config Flow)!
-
 # --- Core Setup FÁZISOK ---
 
 async def async_setup(hass: HomeAssistant, config: dict):
@@ -24,10 +21,11 @@ async def async_setup(hass: HomeAssistant, config: dict):
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     """Integráció beállítása a konfigurációs bejegyzés alapján."""
     
-    # Itt használjuk a konfigurációban megadott API címet:
+    # Kinyerjük a Config Flow-ban mentett URL-t
     addon_api_url = entry.data.get("api_url") 
+    
     if not addon_api_url:
-        _LOGGER.error("Hiányzó API URL a konfigurációban.")
+        _LOGGER.error("Hiányzó API URL a konfigurációban. A Config Flow hibázott.")
         return False
 
     coordinator = BogyiKonyhaDataUpdateCoordinator(hass, addon_api_url)
@@ -37,10 +35,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinator
     await hass.config_entries.async_forward_entry_setup(entry, "sensor")
     return True
-# (async_unload_entry változatlan marad)
-# ...
 
-# --- Data Update Koordinátor (Csak a lényeges változások) ---
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
+    """Integráció eltávolítása a config entry törlésekor."""
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, ["sensor"])
+    if unload_ok:
+        hass.data[DOMAIN].pop(entry.entry_id)
+    return unload_ok
+
+
+# --- Data Update Koordinátor (Direkt API hívással) ---
 
 class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
     """Az adatok frissítéséért felelős koordinátor."""
@@ -59,8 +63,8 @@ class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Adatok lekérése a Bogyi Konyha Add-on API-ról."""
         
-        # Nincs szükség speciális fejlécekre, mert direkt hívás történik
         try:
+            # Direkt hívás a kinyert URL-re (nincs szükség fejlécekre)
             async with self.session.get(self.api_url, timeout=10) as response:
                 
                 if response.status != 200:
@@ -69,6 +73,7 @@ class BogyiKonyhaDataUpdateCoordinator(DataUpdateCoordinator):
                     raise UpdateFailed(f"Add-on API hiba: {response.status}")
 
                 data = await response.json()
+                _LOGGER.debug("Sikeresen lekérdezett adatok: %s", data)
                 return data
                 
         except Exception as err:
